@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">远程控制</string>
+    <string name="accessibility_description">允许远程设备控制此手机的触摸和手势操作</string>
+    <string name="hint_server_url">信令服务器地址</string>
+    <string name="hint_device_name">设备名称</string>
+    <string name="hint_connection_code">输入对方的连接码</string>
+    <string name="btn_connect_server">连接服务器</string>
+    <string name="btn_request_control">请求控制</string>
+    <string name="btn_disconnect">断开连接</string>
+    <string name="status_disconnected">未连接</string>
+    <string name="status_connecting">连接中...</string>
+    <string name="status_connected">已连接服务器</string>
+    <string name="status_in_session">远程会话中</string>
+    <string name="your_code">你的连接码</string>
+    <string name="notification_channel">远程控制服务</string>
+    <string name="notification_capturing">正在共享屏幕...</string>
+    <string name="dialog_control_request_title">远程控制请求</string>
+    <string name="dialog_control_request_msg">%s 请求控制你的手机，是否允许？</string>
+    <string name="btn_accept">允许</string>
+    <string name="btn_reject">拒绝</string>
+    <string name="enable_accessibility">请先开启无障碍服务</string>
+</resources>
