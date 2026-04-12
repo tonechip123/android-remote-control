@@ -16,7 +16,7 @@ const httpServer = http.createServer((req, res) => {
       res.writeHead(200, {
         'Content-Type': 'application/vnd.android.package-archive',
         'Content-Length': stat.size,
-        'Content-Disposition': 'attachment; filename="MY远程.apk"',
+        'Content-Disposition': 'attachment; filename="MY-Remote.apk"',
       });
       fs.createReadStream(file).pipe(res);
     } else {
