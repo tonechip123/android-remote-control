@@ -10,6 +10,5 @@
 
     <style name="Theme.RemoteControl.Fullscreen" parent="Theme.MaterialComponents.DayNight.NoActionBar">
         <item name="android:windowFullscreen">true</item>
-        <item name="android:windowKeepScreenOn">true</item>
     </style>
 </resources>
