@@ -1,8 +1,35 @@
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
 const WebSocket = require('ws');
 const { v4: uuidv4 } = require('uuid');
 
 const PORT = process.env.PORT || 8080;
-const wss = new WebSocket.Server({ port: PORT });
+const APK_PATH = path.join(__dirname, '..', 'dl', 'my.apk');
+
+// HTTP server: serves APK at /my.apk, upgrades WebSocket otherwise
+const httpServer = http.createServer((req, res) => {
+  if (req.url === '/my.apk' || req.url === '/') {
+    const file = req.url === '/' ? APK_PATH : APK_PATH;
+    if (fs.existsSync(file)) {
+      const stat = fs.statSync(file);
+      res.writeHead(200, {
+        'Content-Type': 'application/vnd.android.package-archive',
+        'Content-Length': stat.size,
+        'Content-Disposition': 'attachment; filename="MY远程.apk"',
+      });
+      fs.createReadStream(file).pipe(res);
+    } else {
+      res.writeHead(404);
+      res.end('APK not found');
+    }
+  } else {
+    res.writeHead(200);
+    res.end('Signaling server OK');
+  }
+});
+
+const wss = new WebSocket.Server({ server: httpServer });
 
 // Device registry: deviceId -> { ws, deviceName, online }
 const devices = new Map();
@@ -173,4 +200,8 @@ wss.on('connection', (ws) => {
   });
 });
 
-console.log(`Signaling server running on ws://0.0.0.0:${PORT}`);
+httpServer.listen(PORT, () => {
+  console.log(`Server running on http://0.0.0.0:${PORT}`);
+  console.log(`APK download: http://0.0.0.0:${PORT}/my.apk`);
+  console.log(`WebSocket signaling: ws://0.0.0.0:${PORT}`);
+});
