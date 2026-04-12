@@ -4,8 +4,10 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.graphics.Path
 import android.os.Build
+import android.os.Bundle
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
 import com.google.gson.JsonObject
 
 /**
@@ -86,6 +88,10 @@ class InputInjectionService : AccessibilityService() {
                     performPinch(centerX, centerY, scale)
                 }
             }
+            "type_text" -> {
+                val text = event.get("text")?.asString ?: return
+                performTypeText(text)
+            }
             "back" -> performGlobalAction(GLOBAL_ACTION_BACK)
             "home" -> performGlobalAction(GLOBAL_ACTION_HOME)
             "recents" -> performGlobalAction(GLOBAL_ACTION_RECENTS)
@@ -150,5 +156,44 @@ class InputInjectionService : AccessibilityService() {
         }
 
         dispatchGesture(builder.build(), null, null)
+    }
+
+    /**
+     * Type text into the currently focused input field.
+     * Finds the focused EditText via accessibility tree and sets its text.
+     */
+    private fun performTypeText(text: String) {
+        val rootNode = rootInActiveWindow ?: run {
+            Log.w(TAG, "No active window for text input")
+            return
+        }
+        val focusedNode = rootNode.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+        if (focusedNode != null) {
+            val args = Bundle().apply {
+                putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+            }
+            focusedNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+            focusedNode.recycle()
+        } else {
+            // No focused input — try clipboard paste as fallback
+            val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            val clip = android.content.ClipData.newPlainText("remote_text", text)
+            clipboard.setPrimaryClip(clip)
+            // Find any editable node and paste
+            pasteToFirstEditable(rootNode)
+        }
+        rootNode.recycle()
+    }
+
+    private fun pasteToFirstEditable(node: AccessibilityNodeInfo) {
+        if (node.isEditable) {
+            node.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+            return
+        }
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            pasteToFirstEditable(child)
+            child.recycle()
+        }
     }
 }

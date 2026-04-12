@@ -1,9 +1,11 @@
 package com.remotecontrol.ui
 
 import android.annotation.SuppressLint
+import android.app.AlertDialog
 import android.os.Bundle
 import android.view.MotionEvent
 import android.view.View
+import android.widget.EditText
 import androidx.appcompat.app.AppCompatActivity
 import com.google.gson.JsonObject
 import com.remotecontrol.databinding.ActivityRemoteViewBinding
@@ -136,6 +138,9 @@ class RemoteViewActivity : AppCompatActivity(), WebRTCManager.WebRTCListener {
                 addProperty("action", "home")
             })
         }
+        binding.btnKeyboard.setOnClickListener {
+            showTextInputDialog()
+        }
         binding.btnDisconnectSession.setOnClickListener {
             roomId?.let { signalingClient?.disconnectRoom(it) }
             finish()
@@ -151,6 +156,28 @@ class RemoteViewActivity : AppCompatActivity(), WebRTCManager.WebRTCListener {
                 binding.toolbar.animate().alpha(0.3f).duration = 500
             }, 3000)
         }
+    }
+
+    private fun showTextInputDialog() {
+        val editText = EditText(this).apply {
+            hint = "输入要发送的文字"
+            setPadding(48, 32, 48, 32)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("远程输入文字")
+            .setView(editText)
+            .setPositiveButton("发送") { _, _ ->
+                val text = editText.text.toString()
+                if (text.isNotEmpty()) {
+                    sendInputEvent(JsonObject().apply {
+                        addProperty("action", "type_text")
+                        addProperty("text", text)
+                    })
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
+        editText.requestFocus()
     }
 
     private fun sendInputEvent(event: JsonObject) {
