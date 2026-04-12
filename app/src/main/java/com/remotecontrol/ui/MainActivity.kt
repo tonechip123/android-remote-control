@@ -233,17 +233,29 @@ class MainActivity : AppCompatActivity(), SignalingListener, WebRTCManager.WebRT
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == REQUEST_MEDIA_PROJECTION && resultCode == Activity.RESULT_OK && data != null) {
-            val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
-                action = ScreenCaptureService.ACTION_START
-                putExtra(ScreenCaptureService.EXTRA_PROJECTION_DATA, data)
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(serviceIntent)
-            } else {
-                startService(serviceIntent)
-            }
-            pendingRoomId?.let { roomId ->
-                webRTCManager.startAsControlled(roomId, data)
+            try {
+                // Start foreground service FIRST, must call startForeground() within 5s
+                val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
+                    action = ScreenCaptureService.ACTION_START
+                    putExtra(ScreenCaptureService.EXTRA_PROJECTION_DATA, data)
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(serviceIntent)
+                } else {
+                    startService(serviceIntent)
+                }
+                // Delay WebRTC start to ensure service is ready
+                binding.root.postDelayed({
+                    try {
+                        pendingRoomId?.let { roomId ->
+                            webRTCManager.startAsControlled(roomId, data)
+                        }
+                    } catch (e: Exception) {
+                        Toast.makeText(this, "屏幕采集启动失败: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                }, 500)
+            } catch (e: Exception) {
+                Toast.makeText(this, "服务启动失败: ${e.message}", Toast.LENGTH_LONG).show()
             }
         }
     }
