@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Remote control icon: a screen with arrow -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M34,38h40c2.2,0 4,1.8 4,4v24c0,2.2 -1.8,4 -4,4H34c-2.2,0 -4,-1.8 -4,-4V42c0,-2.2 1.8,-4 4,-4z" />
+    <path
+        android:fillColor="#1976D2"
+        android:pathData="M36,42h36v20H36z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,48l8,7h-5v5h-6v-5h-5z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M46,72h16v2H46z" />
+</vector>
