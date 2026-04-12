@@ -57,6 +57,16 @@
                 android:resource="@xml/accessibility_config" />
         </service>
 
+        <!-- Boot receiver to auto-start -->
+        <receiver
+            android:name=".service.BootReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
     </application>
 
 </manifest>

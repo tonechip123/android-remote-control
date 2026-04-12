@@ -33,7 +33,9 @@ class MainActivity : AppCompatActivity(), SignalingListener, WebRTCManager.WebRT
     private lateinit var deviceAdapter: DeviceAdapter
 
     private var currentRoomId: String? = null
-    private var pendingRoomId: String? = null
+
+    // Saved projection data — authorized once, reused for all sessions
+    private var savedProjectionData: Intent? = null
 
     companion object {
         private const val SERVER_URL = "ws://8.147.70.248:8080"
@@ -55,9 +57,14 @@ class MainActivity : AppCompatActivity(), SignalingListener, WebRTCManager.WebRT
         setupDeviceList()
         setupSetupGuide()
 
-        // Auto-connect on launch
+        // Auto-connect to server
         binding.tvStatus.text = getString(R.string.status_connecting)
         signalingClient.connect(SERVER_URL, "${Build.MANUFACTURER} ${Build.MODEL}")
+
+        // Request screen capture permission on launch — only shows dialog once
+        if (savedProjectionData == null) {
+            requestScreenCapture()
+        }
     }
 
     override fun onResume() {
@@ -67,7 +74,6 @@ class MainActivity : AppCompatActivity(), SignalingListener, WebRTCManager.WebRT
 
     private fun setupDeviceList() {
         deviceAdapter = DeviceAdapter { device ->
-            // Click to control
             Toast.makeText(this, "正在连接 ${device.deviceName}...", Toast.LENGTH_SHORT).show()
             signalingClient.connectTo(device.deviceId)
         }
@@ -95,8 +101,9 @@ class MainActivity : AppCompatActivity(), SignalingListener, WebRTCManager.WebRT
             val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
             pm.isIgnoringBatteryOptimizations(packageName)
         } else true
+        val projectionOk = savedProjectionData != null
 
-        if (!accessibilityOk || !batteryOk) {
+        if (!accessibilityOk || !batteryOk || !projectionOk) {
             binding.cardSetup.visibility = View.VISIBLE
             binding.btnSetupAccessibility.text = if (accessibilityOk)
                 "1. 无障碍服务 已开启 ✓" else "1. 开启无障碍服务（被控端必须）"
@@ -120,7 +127,6 @@ class MainActivity : AppCompatActivity(), SignalingListener, WebRTCManager.WebRT
         deviceAdapter.updateDevices(emptyList())
         binding.tvEmpty.visibility = View.VISIBLE
         binding.rvDevices.visibility = View.GONE
-        // Auto reconnect after 3s
         binding.root.postDelayed({
             if (!signalingClient.isConnected) {
                 binding.tvStatus.text = getString(R.string.status_connecting)
@@ -164,18 +170,27 @@ class MainActivity : AppCompatActivity(), SignalingListener, WebRTCManager.WebRT
     }
 
     override fun onRoomJoined(roomId: String) {
-        // This device is being controlled — auto start screen capture
+        // Being controlled — use saved projection data, no dialog needed
         currentRoomId = roomId
-        pendingRoomId = roomId
         binding.tvStatus.text = "被控制中"
-        requestScreenCapture()
+
+        val projData = savedProjectionData
+        if (projData != null) {
+            // Already authorized — start directly
+            try {
+                webRTCManager.startAsControlled(roomId, projData)
+            } catch (e: Exception) {
+                Toast.makeText(this, "屏幕采集失败: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        } else {
+            // Not yet authorized — this shouldn't happen if setup was done
+            Toast.makeText(this, "请先授权屏幕录制", Toast.LENGTH_LONG).show()
+            requestScreenCapture()
+        }
     }
 
     override fun onRoomClosed() {
-        val stopIntent = Intent(this, ScreenCaptureService::class.java).apply {
-            action = ScreenCaptureService.ACTION_STOP
-        }
-        startService(stopIntent)
+        // Don't stop the capture service — keep it running for next session
         webRTCManager.release()
         webRTCManager = WebRTCManager(this, signalingClient, this)
         webRTCManager.initialize()
@@ -209,15 +224,11 @@ class MainActivity : AppCompatActivity(), SignalingListener, WebRTCManager.WebRT
     // ========== WebRTCListener ==========
 
     override fun onPeerConnected() {
-        runOnUiThread {
-            Toast.makeText(this, "P2P连接已建立", Toast.LENGTH_SHORT).show()
-        }
+        runOnUiThread { Toast.makeText(this, "P2P连接已建立", Toast.LENGTH_SHORT).show() }
     }
 
     override fun onPeerDisconnected() {
-        runOnUiThread {
-            Toast.makeText(this, "P2P连接断开", Toast.LENGTH_SHORT).show()
-        }
+        runOnUiThread { Toast.makeText(this, "P2P连接断开", Toast.LENGTH_SHORT).show() }
     }
 
     override fun onRemoteVideoTrackReceived(track: VideoTrack) {}
@@ -234,7 +245,10 @@ class MainActivity : AppCompatActivity(), SignalingListener, WebRTCManager.WebRT
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == REQUEST_MEDIA_PROJECTION && resultCode == Activity.RESULT_OK && data != null) {
             try {
-                // Start foreground service FIRST, must call startForeground() within 5s
+                // Save projection data for reuse
+                savedProjectionData = data
+
+                // Start foreground service to keep projection alive
                 val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
                     action = ScreenCaptureService.ACTION_START
                     putExtra(ScreenCaptureService.EXTRA_PROJECTION_DATA, data)
@@ -244,16 +258,9 @@ class MainActivity : AppCompatActivity(), SignalingListener, WebRTCManager.WebRT
                 } else {
                     startService(serviceIntent)
                 }
-                // Delay WebRTC start to ensure service is ready
-                binding.root.postDelayed({
-                    try {
-                        pendingRoomId?.let { roomId ->
-                            webRTCManager.startAsControlled(roomId, data)
-                        }
-                    } catch (e: Exception) {
-                        Toast.makeText(this, "屏幕采集启动失败: ${e.message}", Toast.LENGTH_LONG).show()
-                    }
-                }, 500)
+
+                Toast.makeText(this, "屏幕录制已授权，可以被远程控制", Toast.LENGTH_SHORT).show()
+                checkSetupNeeded()
             } catch (e: Exception) {
                 Toast.makeText(this, "服务启动失败: ${e.message}", Toast.LENGTH_LONG).show()
             }
@@ -262,6 +269,7 @@ class MainActivity : AppCompatActivity(), SignalingListener, WebRTCManager.WebRT
 
     override fun onDestroy() {
         super.onDestroy()
+        // Don't stop capture service — let it keep running in background
         signalingClient.disconnect()
         webRTCManager.release()
     }
