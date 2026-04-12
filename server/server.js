@@ -8,47 +8,39 @@ const wss = new WebSocket.Server({ port: PORT });
 const devices = new Map();
 // Room registry: roomId -> { controller: deviceId, controlled: deviceId }
 const rooms = new Map();
-// Pending connection requests: targetDeviceId -> { from, roomId, timestamp }
-const pendingRequests = new Map();
 
-// Connection code -> deviceId mapping (6-digit codes for easy pairing)
-const connectionCodes = new Map();
-
-function generateCode() {
-  let code;
-  do {
-    code = String(Math.floor(100000 + Math.random() * 900000));
-  } while (connectionCodes.has(code));
-  return code;
-}
-
-function broadcast(deviceId, message) {
+function sendTo(deviceId, message) {
   const device = devices.get(deviceId);
   if (device && device.ws.readyState === WebSocket.OPEN) {
     device.ws.send(JSON.stringify(message));
   }
 }
 
-function cleanupDevice(deviceId) {
-  const device = devices.get(deviceId);
-  if (device) {
-    // Remove connection code
-    for (const [code, id] of connectionCodes.entries()) {
-      if (id === deviceId) {
-        connectionCodes.delete(code);
-        break;
-      }
-    }
-    // Clean up rooms
-    for (const [roomId, room] of rooms.entries()) {
-      if (room.controller === deviceId || room.controlled === deviceId) {
-        const otherId = room.controller === deviceId ? room.controlled : room.controller;
-        broadcast(otherId, { type: 'room_closed', roomId });
-        rooms.delete(roomId);
-      }
-    }
-    devices.delete(deviceId);
+// Broadcast online device list to all connected devices
+function broadcastDeviceList() {
+  const list = [];
+  for (const [id, dev] of devices.entries()) {
+    list.push({ deviceId: id, deviceName: dev.deviceName });
   }
+  const msg = JSON.stringify({ type: 'device_list', devices: list });
+  for (const [, dev] of devices.entries()) {
+    if (dev.ws.readyState === WebSocket.OPEN) {
+      dev.ws.send(msg);
+    }
+  }
+}
+
+function cleanupDevice(deviceId) {
+  // Clean up rooms
+  for (const [roomId, room] of rooms.entries()) {
+    if (room.controller === deviceId || room.controlled === deviceId) {
+      const otherId = room.controller === deviceId ? room.controlled : room.controller;
+      sendTo(otherId, { type: 'room_closed', roomId });
+      rooms.delete(roomId);
+    }
+  }
+  devices.delete(deviceId);
+  broadcastDeviceList();
 }
 
 wss.on('connection', (ws) => {
@@ -64,35 +56,24 @@ wss.on('connection', (ws) => {
     }
 
     switch (msg.type) {
-      // Device registration
       case 'register': {
         const deviceId = msg.deviceId || uuidv4();
         currentDeviceId = deviceId;
-        const code = generateCode();
-        connectionCodes.set(code, deviceId);
         devices.set(deviceId, {
           ws,
           deviceName: msg.deviceName || 'Unknown',
-          online: true,
         });
-        ws.send(JSON.stringify({
-          type: 'registered',
-          deviceId,
-          connectionCode: code,
-        }));
-        console.log(`Device registered: ${deviceId} (${msg.deviceName}) code=${code}`);
+        ws.send(JSON.stringify({ type: 'registered', deviceId }));
+        console.log(`Device registered: ${deviceId} (${msg.deviceName})`);
+        broadcastDeviceList();
         break;
       }
 
-      // Request to control another device by connection code
-      case 'connect_request': {
-        const targetDeviceId = connectionCodes.get(msg.code);
-        if (!targetDeviceId) {
-          ws.send(JSON.stringify({ type: 'error', message: 'Invalid connection code' }));
-          return;
-        }
-        if (targetDeviceId === currentDeviceId) {
-          ws.send(JSON.stringify({ type: 'error', message: 'Cannot connect to yourself' }));
+      // Direct connect by deviceId (no code needed)
+      case 'connect_to': {
+        const targetDeviceId = msg.targetDeviceId;
+        if (!targetDeviceId || targetDeviceId === currentDeviceId) {
+          ws.send(JSON.stringify({ type: 'error', message: 'Invalid target' }));
           return;
         }
         const targetDevice = devices.get(targetDeviceId);
@@ -101,57 +82,25 @@ wss.on('connection', (ws) => {
           return;
         }
         const roomId = uuidv4();
-        const controllerDevice = devices.get(currentDeviceId);
-        pendingRequests.set(targetDeviceId, {
-          from: currentDeviceId,
-          roomId,
-          timestamp: Date.now(),
+        rooms.set(roomId, {
+          controller: currentDeviceId,
+          controlled: targetDeviceId,
         });
-        // Ask the target device for permission
-        broadcast(targetDeviceId, {
-          type: 'control_request',
+        // Auto-accept: notify both sides directly
+        sendTo(currentDeviceId, {
+          type: 'control_accepted',
           roomId,
-          fromDeviceId: currentDeviceId,
-          fromDeviceName: controllerDevice ? controllerDevice.deviceName : 'Unknown',
         });
-        ws.send(JSON.stringify({ type: 'connect_pending', roomId }));
-        console.log(`Control request: ${currentDeviceId} -> ${targetDeviceId} room=${roomId}`);
+        sendTo(targetDeviceId, {
+          type: 'room_joined',
+          roomId,
+          role: 'controlled',
+        });
+        console.log(`Room created: ${roomId} (${currentDeviceId} -> ${targetDeviceId})`);
         break;
       }
 
-      // Target device accepts or rejects control request
-      case 'control_response': {
-        const pending = pendingRequests.get(currentDeviceId);
-        if (!pending) {
-          ws.send(JSON.stringify({ type: 'error', message: 'No pending request' }));
-          return;
-        }
-        pendingRequests.delete(currentDeviceId);
-        if (msg.accepted) {
-          rooms.set(pending.roomId, {
-            controller: pending.from,
-            controlled: currentDeviceId,
-          });
-          broadcast(pending.from, {
-            type: 'control_accepted',
-            roomId: pending.roomId,
-          });
-          broadcast(currentDeviceId, {
-            type: 'room_joined',
-            roomId: pending.roomId,
-            role: 'controlled',
-          });
-          console.log(`Room created: ${pending.roomId}`);
-        } else {
-          broadcast(pending.from, {
-            type: 'control_rejected',
-            roomId: pending.roomId,
-          });
-        }
-        break;
-      }
-
-      // WebRTC signaling: offer, answer, ice_candidate
+      // WebRTC signaling
       case 'offer':
       case 'answer':
       case 'ice_candidate': {
@@ -163,7 +112,7 @@ wss.on('connection', (ws) => {
         const targetId = room.controller === currentDeviceId
           ? room.controlled
           : room.controller;
-        broadcast(targetId, {
+        sendTo(targetId, {
           type: msg.type,
           roomId: msg.roomId,
           data: msg.data,
@@ -171,14 +120,14 @@ wss.on('connection', (ws) => {
         break;
       }
 
-      // Touch/input events from controller to controlled
+      // Touch/input events
       case 'input_event': {
         const room2 = rooms.get(msg.roomId);
         if (!room2 || room2.controller !== currentDeviceId) {
           ws.send(JSON.stringify({ type: 'error', message: 'Not authorized' }));
           return;
         }
-        broadcast(room2.controlled, {
+        sendTo(room2.controlled, {
           type: 'input_event',
           roomId: msg.roomId,
           event: msg.event,
@@ -186,21 +135,19 @@ wss.on('connection', (ws) => {
         break;
       }
 
-      // Disconnect from room
       case 'disconnect_room': {
         const room3 = rooms.get(msg.roomId);
         if (room3) {
           const otherId = room3.controller === currentDeviceId
             ? room3.controlled
             : room3.controller;
-          broadcast(otherId, { type: 'room_closed', roomId: msg.roomId });
+          sendTo(otherId, { type: 'room_closed', roomId: msg.roomId });
           rooms.delete(msg.roomId);
           console.log(`Room closed: ${msg.roomId}`);
         }
         break;
       }
 
-      // Heartbeat
       case 'ping': {
         ws.send(JSON.stringify({ type: 'pong' }));
         break;
@@ -225,19 +172,5 @@ wss.on('connection', (ws) => {
     }
   });
 });
-
-// Clean up stale pending requests every 30s
-setInterval(() => {
-  const now = Date.now();
-  for (const [deviceId, req] of pendingRequests.entries()) {
-    if (now - req.timestamp > 60000) {
-      pendingRequests.delete(deviceId);
-      broadcast(req.from, {
-        type: 'control_timeout',
-        roomId: req.roomId,
-      });
-    }
-  }
-}, 30000);
 
 console.log(`Signaling server running on ws://0.0.0.0:${PORT}`);

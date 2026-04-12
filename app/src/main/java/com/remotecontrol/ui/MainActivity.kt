@@ -1,16 +1,19 @@
 package com.remotecontrol.ui
 
 import android.app.Activity
-import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.media.projection.MediaProjectionManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.Settings
 import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.recyclerview.widget.LinearLayoutManager
+import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.remotecontrol.R
 import com.remotecontrol.databinding.ActivityMainBinding
@@ -27,16 +30,14 @@ class MainActivity : AppCompatActivity(), SignalingListener, WebRTCManager.WebRT
     private lateinit var binding: ActivityMainBinding
     private lateinit var signalingClient: SignalingClient
     private lateinit var webRTCManager: WebRTCManager
+    private lateinit var deviceAdapter: DeviceAdapter
 
     private var currentRoomId: String? = null
     private var pendingRoomId: String? = null
-    private var isControlled = false
 
     companion object {
+        private const val SERVER_URL = "ws://8.147.70.248:8080"
         private const val REQUEST_MEDIA_PROJECTION = 1001
-        private const val PREFS_NAME = "remote_control_prefs"
-        private const val KEY_SERVER_URL = "server_url"
-        private const val KEY_DEVICE_NAME = "device_name"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -48,102 +49,64 @@ class MainActivity : AppCompatActivity(), SignalingListener, WebRTCManager.WebRT
         webRTCManager = WebRTCManager(this, signalingClient, this)
         webRTCManager.initialize()
 
-        // Share with RemoteViewActivity
         RemoteControlHolder.signalingClient = signalingClient
         RemoteControlHolder.webRTCManager = webRTCManager
 
-        loadPreferences()
-        setupDefaultDeviceName()
-        setupClickListeners()
+        setupDeviceList()
+        setupSetupGuide()
+
+        // Auto-connect on launch
+        binding.tvStatus.text = getString(R.string.status_connecting)
+        signalingClient.connect(SERVER_URL, "${Build.MANUFACTURER} ${Build.MODEL}")
     }
 
     override fun onResume() {
         super.onResume()
-        updateAccessibilityStatus()
+        checkSetupNeeded()
     }
 
-    private fun loadPreferences() {
-        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.getString(KEY_SERVER_URL, null)?.let {
-            binding.etServerUrl.setText(it)
+    private fun setupDeviceList() {
+        deviceAdapter = DeviceAdapter { device ->
+            // Click to control
+            Toast.makeText(this, "正在连接 ${device.deviceName}...", Toast.LENGTH_SHORT).show()
+            signalingClient.connectTo(device.deviceId)
         }
-        prefs.getString(KEY_DEVICE_NAME, null)?.let {
-            binding.etDeviceName.setText(it)
-        }
+        binding.rvDevices.layoutManager = LinearLayoutManager(this)
+        binding.rvDevices.adapter = deviceAdapter
     }
 
-    private fun savePreferences() {
-        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().apply {
-            putString(KEY_SERVER_URL, binding.etServerUrl.text.toString())
-            putString(KEY_DEVICE_NAME, binding.etDeviceName.text.toString())
-            apply()
+    private fun setupSetupGuide() {
+        binding.btnSetupAccessibility.setOnClickListener {
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
-    }
-
-    private fun setupDefaultDeviceName() {
-        if (binding.etDeviceName.text.isNullOrBlank()) {
-            binding.etDeviceName.setText("${Build.MANUFACTURER} ${Build.MODEL}")
-        }
-    }
-
-    private fun setupClickListeners() {
-        binding.btnConnect.setOnClickListener {
-            val url = binding.etServerUrl.text.toString().trim()
-            val name = binding.etDeviceName.text.toString().trim()
-            if (url.isBlank()) {
-                Toast.makeText(this, "请输入服务器地址", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
+        binding.btnSetupBattery.setOnClickListener {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                    data = Uri.parse("package:$packageName")
+                }
+                startActivity(intent)
             }
-            savePreferences()
-            binding.tvStatus.text = getString(R.string.status_connecting)
-            binding.btnConnect.isEnabled = false
-            signalingClient.connect(url, name)
-        }
-
-        binding.btnRequestControl.setOnClickListener {
-            val code = binding.etRemoteCode.text.toString().trim()
-            if (code.length != 6) {
-                Toast.makeText(this, "请输入6位连接码", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-            binding.btnRequestControl.isEnabled = false
-            signalingClient.requestControl(code)
-        }
-
-        binding.btnDisconnect.setOnClickListener {
-            currentRoomId?.let { signalingClient.disconnectRoom(it) }
-            signalingClient.disconnect()
-            resetUI()
-        }
-
-        binding.btnEnableAccessibility.setOnClickListener {
-            val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-            startActivity(intent)
         }
     }
 
-    private fun updateAccessibilityStatus() {
-        val running = InputInjectionService.isRunning()
-        binding.tvAccessibilityStatus.text = if (running) {
-            "已开启 ✓"
+    private fun checkSetupNeeded() {
+        val accessibilityOk = InputInjectionService.isRunning()
+        val batteryOk = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            pm.isIgnoringBatteryOptimizations(packageName)
+        } else true
+
+        if (!accessibilityOk || !batteryOk) {
+            binding.cardSetup.visibility = View.VISIBLE
+            binding.btnSetupAccessibility.text = if (accessibilityOk)
+                "1. 无障碍服务 已开启 ✓" else "1. 开启无障碍服务（被控端必须）"
+            binding.btnSetupAccessibility.isEnabled = !accessibilityOk
+            binding.btnSetupBattery.text = if (batteryOk)
+                "2. 电池优化 已关闭 ✓" else "2. 关闭电池优化（保持后台运行）"
+            binding.btnSetupBattery.isEnabled = !batteryOk
         } else {
-            "未开启 - 被控端需要此服务来执行触摸操作"
+            binding.cardSetup.visibility = View.GONE
         }
-        binding.tvAccessibilityStatus.setTextColor(
-            if (running) 0xFF4CAF50.toInt() else 0xFF666666.toInt()
-        )
-        binding.btnEnableAccessibility.visibility = if (running) View.GONE else View.VISIBLE
-    }
-
-    private fun resetUI() {
-        currentRoomId = null
-        isControlled = false
-        binding.tvStatus.text = getString(R.string.status_disconnected)
-        binding.btnConnect.isEnabled = true
-        binding.cardMyCode.visibility = View.GONE
-        binding.cardRemote.visibility = View.GONE
-        binding.btnDisconnect.visibility = View.GONE
-        binding.btnRequestControl.isEnabled = true
     }
 
     // ========== SignalingListener ==========
@@ -153,43 +116,46 @@ class MainActivity : AppCompatActivity(), SignalingListener, WebRTCManager.WebRT
     }
 
     override fun onDisconnected() {
-        resetUI()
-        Toast.makeText(this, "已断开连接", Toast.LENGTH_SHORT).show()
+        binding.tvStatus.text = getString(R.string.status_disconnected)
+        deviceAdapter.updateDevices(emptyList())
+        binding.tvEmpty.visibility = View.VISIBLE
+        binding.rvDevices.visibility = View.GONE
+        // Auto reconnect after 3s
+        binding.root.postDelayed({
+            if (!signalingClient.isConnected) {
+                binding.tvStatus.text = getString(R.string.status_connecting)
+                signalingClient.connect(SERVER_URL, "${Build.MANUFACTURER} ${Build.MODEL}")
+            }
+        }, 3000)
     }
 
-    override fun onRegistered(deviceId: String, connectionCode: String) {
-        binding.tvMyCode.text = connectionCode
-        binding.cardMyCode.visibility = View.VISIBLE
-        binding.cardRemote.visibility = View.VISIBLE
-        binding.btnDisconnect.visibility = View.VISIBLE
-        binding.btnConnect.isEnabled = false
+    override fun onRegistered(deviceId: String) {
+        binding.tvStatus.text = "已连接 (${Build.MODEL})"
     }
 
-    override fun onControlRequest(roomId: String, fromDeviceName: String) {
-        pendingRoomId = roomId
-        AlertDialog.Builder(this)
-            .setTitle(R.string.dialog_control_request_title)
-            .setMessage(getString(R.string.dialog_control_request_msg, fromDeviceName))
-            .setPositiveButton(R.string.btn_accept) { _, _ ->
-                signalingClient.respondToControl(true)
-                // Start screen capture
-                requestScreenCapture()
+    override fun onDeviceListUpdated(devices: JsonArray) {
+        val myId = signalingClient.deviceId
+        val list = mutableListOf<DeviceInfo>()
+        for (element in devices) {
+            val obj = element.asJsonObject
+            val id = obj.get("deviceId").asString
+            if (id != myId) {
+                list.add(DeviceInfo(id, obj.get("deviceName").asString))
             }
-            .setNegativeButton(R.string.btn_reject) { _, _ ->
-                signalingClient.respondToControl(false)
-                pendingRoomId = null
-            }
-            .setCancelable(false)
-            .show()
+        }
+        deviceAdapter.updateDevices(list)
+        if (list.isEmpty()) {
+            binding.tvEmpty.visibility = View.VISIBLE
+            binding.rvDevices.visibility = View.GONE
+        } else {
+            binding.tvEmpty.visibility = View.GONE
+            binding.rvDevices.visibility = View.VISIBLE
+        }
     }
 
     override fun onControlAccepted(roomId: String) {
         currentRoomId = roomId
-        isControlled = false
-        binding.tvStatus.text = getString(R.string.status_in_session)
-        Toast.makeText(this, "对方已接受，正在建立连接...", Toast.LENGTH_SHORT).show()
-
-        // Open RemoteViewActivity as controller
+        binding.tvStatus.text = "远程控制中"
         val intent = Intent(this, RemoteViewActivity::class.java).apply {
             putExtra(RemoteViewActivity.EXTRA_ROOM_ID, roomId)
             putExtra(RemoteViewActivity.EXTRA_IS_CONTROLLER, true)
@@ -197,28 +163,15 @@ class MainActivity : AppCompatActivity(), SignalingListener, WebRTCManager.WebRT
         startActivity(intent)
     }
 
-    override fun onControlRejected() {
-        binding.btnRequestControl.isEnabled = true
-        Toast.makeText(this, "对方拒绝了控制请求", Toast.LENGTH_SHORT).show()
-    }
-
-    override fun onControlTimeout() {
-        binding.btnRequestControl.isEnabled = true
-        Toast.makeText(this, "请求超时，对方未响应", Toast.LENGTH_SHORT).show()
-    }
-
-    override fun onConnectPending() {
-        Toast.makeText(this, "请求已发送，等待对方确认...", Toast.LENGTH_SHORT).show()
-    }
-
     override fun onRoomJoined(roomId: String) {
+        // This device is being controlled — auto start screen capture
         currentRoomId = roomId
-        isControlled = true
+        pendingRoomId = roomId
         binding.tvStatus.text = "被控制中"
+        requestScreenCapture()
     }
 
     override fun onRoomClosed() {
-        // Stop screen capture service
         val stopIntent = Intent(this, ScreenCaptureService::class.java).apply {
             action = ScreenCaptureService.ACTION_STOP
         }
@@ -226,14 +179,13 @@ class MainActivity : AppCompatActivity(), SignalingListener, WebRTCManager.WebRT
         webRTCManager.release()
         webRTCManager = WebRTCManager(this, signalingClient, this)
         webRTCManager.initialize()
+        RemoteControlHolder.webRTCManager = webRTCManager
         currentRoomId = null
-        isControlled = false
         binding.tvStatus.text = getString(R.string.status_connected)
         Toast.makeText(this, "远程会话已结束", Toast.LENGTH_SHORT).show()
     }
 
     override fun onOffer(roomId: String, data: JsonObject) {
-        // Controller receives offer from controlled device
         webRTCManager.handleOffer(roomId, data)
     }
 
@@ -246,15 +198,12 @@ class MainActivity : AppCompatActivity(), SignalingListener, WebRTCManager.WebRT
     }
 
     override fun onInputEvent(event: JsonObject) {
-        // Controlled device receives input — map normalized coords to screen pixels
         val mapped = CoordinateMapper.mapToScreen(this, event)
         InputInjectionService.instance?.dispatchRemoteEvent(mapped)
     }
 
     override fun onError(message: String) {
-        binding.btnConnect.isEnabled = true
-        binding.btnRequestControl.isEnabled = true
-        Toast.makeText(this, "错误: $message", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
 
     // ========== WebRTCListener ==========
@@ -271,18 +220,11 @@ class MainActivity : AppCompatActivity(), SignalingListener, WebRTCManager.WebRT
         }
     }
 
-    override fun onRemoteVideoTrackReceived(track: VideoTrack) {
-        // Handled in RemoteViewActivity
-    }
+    override fun onRemoteVideoTrackReceived(track: VideoTrack) {}
 
     // ========== Screen Capture ==========
 
     private fun requestScreenCapture() {
-        if (!InputInjectionService.isRunning()) {
-            Toast.makeText(this, R.string.enable_accessibility, Toast.LENGTH_LONG).show()
-            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-            return
-        }
         val projectionManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         startActivityForResult(projectionManager.createScreenCaptureIntent(), REQUEST_MEDIA_PROJECTION)
     }
@@ -291,7 +233,6 @@ class MainActivity : AppCompatActivity(), SignalingListener, WebRTCManager.WebRT
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == REQUEST_MEDIA_PROJECTION && resultCode == Activity.RESULT_OK && data != null) {
-            // Start foreground service
             val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
                 action = ScreenCaptureService.ACTION_START
                 putExtra(ScreenCaptureService.EXTRA_PROJECTION_DATA, data)
@@ -301,16 +242,9 @@ class MainActivity : AppCompatActivity(), SignalingListener, WebRTCManager.WebRT
             } else {
                 startService(serviceIntent)
             }
-
-            // Start WebRTC as controlled device
             pendingRoomId?.let { roomId ->
-                currentRoomId = roomId
                 webRTCManager.startAsControlled(roomId, data)
             }
-        } else {
-            // User denied screen capture
-            signalingClient.respondToControl(false)
-            pendingRoomId = null
         }
     }
 
@@ -319,8 +253,4 @@ class MainActivity : AppCompatActivity(), SignalingListener, WebRTCManager.WebRT
         signalingClient.disconnect()
         webRTCManager.release()
     }
-
-    /** Expose signalingClient and webRTCManager for RemoteViewActivity */
-    fun getSignaling(): SignalingClient = signalingClient
-    fun getWebRTC(): WebRTCManager = webRTCManager
 }

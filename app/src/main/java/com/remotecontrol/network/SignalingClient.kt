@@ -7,10 +7,6 @@ import com.google.gson.JsonObject
 import okhttp3.*
 import java.util.concurrent.TimeUnit
 
-/**
- * WebSocket client for communicating with the signaling server.
- * Handles device registration, pairing, and WebRTC signaling relay.
- */
 class SignalingClient(
     private val listener: SignalingListener
 ) {
@@ -24,8 +20,6 @@ class SignalingClient(
 
     var deviceId: String? = null
         private set
-    var connectionCode: String? = null
-        private set
     var isConnected = false
         private set
 
@@ -34,7 +28,6 @@ class SignalingClient(
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 isConnected = true
-                // Register this device
                 val msg = JsonObject().apply {
                     addProperty("type", "register")
                     addProperty("deviceName", deviceName)
@@ -58,7 +51,7 @@ class SignalingClient(
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 isConnected = false
-                mainHandler.post { listener.onError("Connection failed: ${t.message}") }
+                mainHandler.post { listener.onError("连接失败: ${t.message}") }
             }
         })
     }
@@ -71,23 +64,15 @@ class SignalingClient(
             when (type) {
                 "registered" -> {
                     deviceId = msg.get("deviceId")?.asString
-                    connectionCode = msg.get("connectionCode")?.asString
-                    listener.onRegistered(deviceId!!, connectionCode!!)
+                    listener.onRegistered(deviceId!!)
                 }
-                "control_request" -> {
-                    val roomId = msg.get("roomId")?.asString ?: return@post
-                    val fromName = msg.get("fromDeviceName")?.asString ?: "Unknown"
-                    listener.onControlRequest(roomId, fromName)
+                "device_list" -> {
+                    val devices = msg.getAsJsonArray("devices")
+                    listener.onDeviceListUpdated(devices)
                 }
                 "control_accepted" -> {
                     val roomId = msg.get("roomId")?.asString ?: return@post
                     listener.onControlAccepted(roomId)
-                }
-                "control_rejected" -> {
-                    listener.onControlRejected()
-                }
-                "control_timeout" -> {
-                    listener.onControlTimeout()
                 }
                 "room_joined" -> {
                     val roomId = msg.get("roomId")?.asString ?: return@post
@@ -115,9 +100,6 @@ class SignalingClient(
                     val event = msg.getAsJsonObject("event")
                     listener.onInputEvent(event)
                 }
-                "connect_pending" -> {
-                    listener.onConnectPending()
-                }
                 "error" -> {
                     val message = msg.get("message")?.asString ?: "Unknown error"
                     listener.onError(message)
@@ -126,17 +108,10 @@ class SignalingClient(
         }
     }
 
-    fun requestControl(code: String) {
+    fun connectTo(targetDeviceId: String) {
         send(JsonObject().apply {
-            addProperty("type", "connect_request")
-            addProperty("code", code)
-        })
-    }
-
-    fun respondToControl(accepted: Boolean) {
-        send(JsonObject().apply {
-            addProperty("type", "control_response")
-            addProperty("accepted", accepted)
+            addProperty("type", "connect_to")
+            addProperty("targetDeviceId", targetDeviceId)
         })
     }
 
