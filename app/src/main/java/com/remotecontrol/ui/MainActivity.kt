@@ -17,6 +17,7 @@ import androidx.core.app.NotificationCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
+import com.remotecontrol.App
 import com.remotecontrol.R
 import com.remotecontrol.databinding.ActivityMainBinding
 import com.remotecontrol.network.SignalingClient
