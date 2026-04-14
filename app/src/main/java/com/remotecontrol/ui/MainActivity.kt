@@ -87,9 +87,12 @@ class MainActivity : AppCompatActivity(), SignalingListener, WebRTCManager.WebRT
         updateStatus(getString(R.string.status_connecting), false)
         signalingClient.connect(SERVER_URL, "${Build.MANUFACTURER} ${Build.MODEL}")
 
-        // Don't request screen capture on launch
-        // Only request when actually being controlled (onRoomJoined)
-        // This avoids crash on Android 16 (Honor 400 Pro)
+        // Auto-request screen capture on Android 13 and below
+        // Android 14+ (Honor 400 Pro) crashes if we start mediaProjection service too early
+        // Honor 10 (Android 10) + ADB appops allow = silent auto-grant, no popup
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.TIRAMISU) {
+            requestScreenCapture()
+        }
     }
 
     override fun onResume() {
