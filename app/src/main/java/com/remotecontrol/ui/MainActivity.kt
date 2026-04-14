@@ -73,7 +73,8 @@ class MainActivity : AppCompatActivity(), SignalingListener, WebRTCManager.WebRT
         updateStatus(getString(R.string.status_connecting), false)
         signalingClient.connect(SERVER_URL, "${Build.MANUFACTURER} ${Build.MODEL}")
 
-        // Request screen capture on launch
+        // Request screen capture on launch so it's ready when being controlled
+        // The system dialog only appears once; after that, the token is reused
         if (savedProjectionData == null) {
             requestScreenCapture()
         }
@@ -203,12 +204,30 @@ class MainActivity : AppCompatActivity(), SignalingListener, WebRTCManager.WebRT
         val projData = savedProjectionData
         if (projData != null) {
             try {
-                webRTCManager.startAsControlled(roomId, projData)
+                // Start screen capture foreground service NOW (with valid token)
+                val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
+                    action = ScreenCaptureService.ACTION_START
+                    putExtra(ScreenCaptureService.EXTRA_PROJECTION_DATA, projData)
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(serviceIntent)
+                } else {
+                    startService(serviceIntent)
+                }
+                // Small delay to let service start, then begin WebRTC
+                binding.root.postDelayed({
+                    try {
+                        webRTCManager.startAsControlled(roomId, projData)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "WebRTC start failed", e)
+                    }
+                }, 300)
             } catch (e: Exception) {
                 Log.e(TAG, "Screen capture failed", e)
                 Toast.makeText(this, "屏幕采集失败: ${e.message}", Toast.LENGTH_LONG).show()
             }
         } else {
+            // No token yet — need to request (first time only)
             Toast.makeText(this, "请先授权屏幕录制", Toast.LENGTH_LONG).show()
             requestScreenCapture()
         }
@@ -309,25 +328,11 @@ class MainActivity : AppCompatActivity(), SignalingListener, WebRTCManager.WebRT
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == REQUEST_MEDIA_PROJECTION && resultCode == Activity.RESULT_OK && data != null) {
-            try {
-                savedProjectionData = data
-
-                val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
-                    action = ScreenCaptureService.ACTION_START
-                    putExtra(ScreenCaptureService.EXTRA_PROJECTION_DATA, data)
-                }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    startForegroundService(serviceIntent)
-                } else {
-                    startService(serviceIntent)
-                }
-
-                Toast.makeText(this, "屏幕录制已授权", Toast.LENGTH_SHORT).show()
-                checkSetupNeeded()
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to start capture service", e)
-                Toast.makeText(this, "服务启动失败: ${e.message}", Toast.LENGTH_LONG).show()
-            }
+            // Just save the token, don't start service yet
+            // Service will be started when actually being controlled (onRoomJoined)
+            savedProjectionData = data
+            Toast.makeText(this, "屏幕录制已授权，待机中", Toast.LENGTH_SHORT).show()
+            checkSetupNeeded()
         }
     }
 

@@ -27,16 +27,11 @@ class ScreenCaptureService : Service() {
 
     override fun onBind(intent: Intent?): IBinder = binder
 
-    override fun onCreate() {
-        super.onCreate()
-        // Immediately show notification to prevent ANR on Android 12+
-        startForegroundNotification()
-    }
-
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START -> {
                 projectionData = intent.getParcelableExtra(EXTRA_PROJECTION_DATA)
+                // Must call startForeground immediately after startForegroundService
                 startForegroundNotification()
             }
             ACTION_STOP -> {
