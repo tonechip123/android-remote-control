@@ -62,11 +62,15 @@ class MainActivity : AppCompatActivity(), SignalingListener, WebRTCManager.WebRT
         setupSetupGuide()
 
         // Start keep-alive foreground service
-        val connIntent = Intent(this, ConnectionService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(connIntent)
-        } else {
-            startService(connIntent)
+        try {
+            val connIntent = Intent(this, ConnectionService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(connIntent)
+            } else {
+                startService(connIntent)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start ConnectionService", e)
         }
 
         // Auto-connect
@@ -112,9 +116,8 @@ class MainActivity : AppCompatActivity(), SignalingListener, WebRTCManager.WebRT
             val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
             pm.isIgnoringBatteryOptimizations(packageName)
         } else true
-        val projectionOk = savedProjectionData != null
 
-        if (!accessibilityOk || !batteryOk || !projectionOk) {
+        if (!accessibilityOk || !batteryOk) {
             binding.cardSetup.visibility = View.VISIBLE
             binding.btnSetupAccessibility.text = if (accessibilityOk)
                 "1. 无障碍服务 已开启 ✓" else "1. 开启无障碍服务（被控端必须）"
