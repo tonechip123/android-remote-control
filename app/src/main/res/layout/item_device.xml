@@ -3,34 +3,55 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_margin="4dp"
+    android:layout_marginHorizontal="4dp"
+    android:layout_marginVertical="6dp"
     android:clickable="true"
     android:focusable="true"
-    app:cardCornerRadius="12dp"
-    app:cardElevation="1dp"
+    app:cardCornerRadius="14dp"
+    app:cardElevation="2dp"
+    app:cardBackgroundColor="#FFFFFF"
     app:rippleColor="#201976D2">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:gravity="center_vertical"
-        android:padding="16dp">
+        android:padding="12dp">
 
-        <!-- Device icon -->
-        <ImageView
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:src="@android:drawable/stat_sys_data_bluetooth"
-            android:contentDescription="device"
-            android:background="@drawable/rounded_toolbar_bg"
-            android:padding="8dp" />
+        <!-- Device thumbnail with online badge -->
+        <FrameLayout
+            android:layout_width="100dp"
+            android:layout_height="70dp">
 
-        <!-- Device name -->
+            <ImageView
+                android:id="@+id/ivDeviceThumbnail"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scaleType="centerCrop"
+                android:background="@drawable/bg_thumbnail"
+                android:src="@drawable/ic_device_default"
+                android:contentDescription="device" />
+
+            <!-- Online badge -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top|start"
+                android:layout_margin="4dp"
+                android:background="@drawable/bg_online_badge"
+                android:paddingHorizontal="8dp"
+                android:paddingVertical="2dp"
+                android:text="在线"
+                android:textColor="#FFFFFF"
+                android:textSize="10sp" />
+        </FrameLayout>
+
+        <!-- Device info -->
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:layout_marginStart="12dp"
+            android:layout_marginStart="14dp"
             android:orientation="vertical">
 
             <TextView
@@ -38,15 +59,19 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Device"
-                android:textColor="#333"
-                android:textSize="16sp"
-                android:textStyle="bold" />
+                android:textColor="#1A1A1A"
+                android:textSize="17sp"
+                android:textStyle="bold"
+                android:maxLines="1"
+                android:ellipsize="end" />
 
             <TextView
+                android:id="@+id/tvDeviceStatus"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="在线 - 点击控制"
-                android:textColor="#4CAF50"
+                android:layout_marginTop="4dp"
+                android:text="点击远程控制"
+                android:textColor="#999999"
                 android:textSize="12sp" />
         </LinearLayout>
 
@@ -54,8 +79,9 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text=">"
-            android:textColor="#CCC"
-            android:textSize="20sp" />
+            android:layout_marginStart="8dp"
+            android:text="›"
+            android:textColor="#CCCCCC"
+            android:textSize="24sp" />
     </LinearLayout>
 </com.google.android.material.card.MaterialCardView>

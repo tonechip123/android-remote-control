@@ -3,10 +3,14 @@
     <string name="app_name">MY远程</string>
     <string name="accessibility_description">允许远程设备控制此手机的触摸和手势操作</string>
     <string name="notification_channel">远程控制服务</string>
-    <string name="notification_capturing">正在共享屏幕...</string>
+    <string name="notification_capturing">正在共享屏幕…</string>
     <string name="status_disconnected">未连接</string>
-    <string name="status_connecting">连接中...</string>
+    <string name="status_connecting">连接中…</string>
     <string name="status_connected">已连接</string>
+    <string name="status_controlling">远程控制中</string>
+    <string name="status_controlled">被控制中</string>
     <string name="btn_disconnect">断开连接</string>
     <string name="enable_accessibility">请先开启无障碍服务</string>
+    <string name="online_devices">在线设备 %d</string>
+    <string name="no_devices">没有在线设备</string>
 </resources>

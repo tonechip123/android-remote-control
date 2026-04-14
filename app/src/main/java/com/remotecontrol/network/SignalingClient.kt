@@ -2,6 +2,7 @@ package com.remotecontrol.network
 
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import okhttp3.*
@@ -10,10 +11,17 @@ import java.util.concurrent.TimeUnit
 class SignalingClient(
     private val listener: SignalingListener
 ) {
+    companion object {
+        private const val TAG = "SignalingClient"
+        private const val RECONNECT_DELAY_MS = 3000L
+        private const val MAX_RECONNECT_DELAY_MS = 30000L
+    }
+
     private var webSocket: WebSocket? = null
     private val client = OkHttpClient.Builder()
         .readTimeout(0, TimeUnit.MILLISECONDS)
-        .pingInterval(30, TimeUnit.SECONDS)
+        .pingInterval(15, TimeUnit.SECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
         .build()
     private val gson = Gson()
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -23,11 +31,29 @@ class SignalingClient(
     var isConnected = false
         private set
 
+    private var serverUrl: String? = null
+    private var deviceName: String? = null
+    private var reconnectAttempt = 0
+    private var intentionalDisconnect = false
+
     fun connect(serverUrl: String, deviceName: String) {
+        this.serverUrl = serverUrl
+        this.deviceName = deviceName
+        this.intentionalDisconnect = false
+        this.reconnectAttempt = 0
+        doConnect(serverUrl, deviceName)
+    }
+
+    private fun doConnect(serverUrl: String, deviceName: String) {
+        // Close existing connection first
+        webSocket?.close(1000, null)
+        webSocket = null
+
         val request = Request.Builder().url(serverUrl).build()
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 isConnected = true
+                reconnectAttempt = 0
                 val msg = JsonObject().apply {
                     addProperty("type", "register")
                     addProperty("deviceName", deviceName)
@@ -37,7 +63,11 @@ class SignalingClient(
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
-                handleMessage(text)
+                try {
+                    handleMessage(text)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error handling message: ${e.message}", e)
+                }
             }
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
@@ -46,14 +76,38 @@ class SignalingClient(
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 isConnected = false
-                mainHandler.post { listener.onDisconnected() }
+                mainHandler.post {
+                    listener.onDisconnected()
+                    scheduleReconnect()
+                }
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                Log.e(TAG, "WebSocket failure: ${t.message}", t)
                 isConnected = false
-                mainHandler.post { listener.onError("连接失败: ${t.message}") }
+                mainHandler.post {
+                    listener.onDisconnected()
+                    scheduleReconnect()
+                }
             }
         })
+    }
+
+    private fun scheduleReconnect() {
+        if (intentionalDisconnect) return
+        val url = serverUrl ?: return
+        val name = deviceName ?: return
+
+        reconnectAttempt++
+        val delay = (RECONNECT_DELAY_MS * reconnectAttempt).coerceAtMost(MAX_RECONNECT_DELAY_MS)
+        Log.d(TAG, "Scheduling reconnect in ${delay}ms (attempt $reconnectAttempt)")
+
+        mainHandler.postDelayed({
+            if (!isConnected && !intentionalDisconnect) {
+                Log.d(TAG, "Reconnecting...")
+                doConnect(url, name)
+            }
+        }, delay)
     }
 
     private fun handleMessage(text: String) {
@@ -64,11 +118,15 @@ class SignalingClient(
             when (type) {
                 "registered" -> {
                     deviceId = msg.get("deviceId")?.asString
-                    listener.onRegistered(deviceId!!)
+                    if (deviceId != null) {
+                        listener.onRegistered(deviceId!!)
+                    }
                 }
                 "device_list" -> {
                     val devices = msg.getAsJsonArray("devices")
-                    listener.onDeviceListUpdated(devices)
+                    if (devices != null) {
+                        listener.onDeviceListUpdated(devices)
+                    }
                 }
                 "control_accepted" -> {
                     val roomId = msg.get("roomId")?.asString ?: return@post
@@ -83,21 +141,21 @@ class SignalingClient(
                 }
                 "offer" -> {
                     val roomId = msg.get("roomId")?.asString ?: return@post
-                    val data = msg.getAsJsonObject("data")
+                    val data = msg.getAsJsonObject("data") ?: return@post
                     listener.onOffer(roomId, data)
                 }
                 "answer" -> {
                     val roomId = msg.get("roomId")?.asString ?: return@post
-                    val data = msg.getAsJsonObject("data")
+                    val data = msg.getAsJsonObject("data") ?: return@post
                     listener.onAnswer(roomId, data)
                 }
                 "ice_candidate" -> {
                     val roomId = msg.get("roomId")?.asString ?: return@post
-                    val data = msg.getAsJsonObject("data")
+                    val data = msg.getAsJsonObject("data") ?: return@post
                     listener.onIceCandidate(roomId, data)
                 }
                 "input_event" -> {
-                    val event = msg.getAsJsonObject("event")
+                    val event = msg.getAsJsonObject("event") ?: return@post
                     listener.onInputEvent(event)
                 }
                 "error" -> {
@@ -155,12 +213,18 @@ class SignalingClient(
     }
 
     fun disconnect() {
+        intentionalDisconnect = true
+        mainHandler.removeCallbacksAndMessages(null)
         webSocket?.close(1000, "User disconnect")
         webSocket = null
         isConnected = false
     }
 
     private fun send(msg: JsonObject) {
-        webSocket?.send(gson.toJson(msg))
+        try {
+            webSocket?.send(gson.toJson(msg))
+        } catch (e: Exception) {
+            Log.e(TAG, "Send failed: ${e.message}", e)
+        }
     }
 }

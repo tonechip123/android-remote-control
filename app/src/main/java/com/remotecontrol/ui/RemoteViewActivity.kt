@@ -3,6 +3,7 @@ package com.remotecontrol.ui
 import android.annotation.SuppressLint
 import android.app.AlertDialog
 import android.os.Bundle
+import android.util.Log
 import android.view.MotionEvent
 import android.view.View
 import android.widget.EditText
@@ -10,7 +11,6 @@ import androidx.appcompat.app.AppCompatActivity
 import com.google.gson.JsonObject
 import com.remotecontrol.databinding.ActivityRemoteViewBinding
 import com.remotecontrol.network.SignalingClient
-import com.remotecontrol.network.SignalingListener
 import com.remotecontrol.network.WebRTCManager
 import org.webrtc.RendererCommon
 import org.webrtc.VideoTrack
@@ -22,6 +22,7 @@ import org.webrtc.VideoTrack
 class RemoteViewActivity : AppCompatActivity(), WebRTCManager.WebRTCListener {
 
     companion object {
+        private const val TAG = "RemoteViewActivity"
         const val EXTRA_ROOM_ID = "room_id"
         const val EXTRA_IS_CONTROLLER = "is_controller"
     }
@@ -30,8 +31,9 @@ class RemoteViewActivity : AppCompatActivity(), WebRTCManager.WebRTCListener {
     private var signalingClient: SignalingClient? = null
     private var webRTCManager: WebRTCManager? = null
     private var roomId: String? = null
+    private var isActive = true
 
-    // Track swipe gesture
+    // Touch gesture tracking
     private var touchDownX = 0f
     private var touchDownY = 0f
     private var touchDownTime = 0L
@@ -48,8 +50,6 @@ class RemoteViewActivity : AppCompatActivity(), WebRTCManager.WebRTCListener {
             return
         }
 
-        // Get references from singleton/application scope
-        // In production, use a shared ViewModel or DI framework
         signalingClient = RemoteControlHolder.signalingClient
         webRTCManager = RemoteControlHolder.webRTCManager
 
@@ -59,13 +59,26 @@ class RemoteViewActivity : AppCompatActivity(), WebRTCManager.WebRTCListener {
         }
 
         // Initialize video renderer
-        val eglBase = webRTCManager!!.getEglBase()
-        binding.remoteVideoView.init(eglBase?.eglBaseContext, null)
-        binding.remoteVideoView.setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FIT)
-        binding.remoteVideoView.setEnableHardwareScaler(true)
+        try {
+            val eglBase = webRTCManager?.getEglBase()
+            if (eglBase != null) {
+                binding.remoteVideoView.init(eglBase.eglBaseContext, null)
+                binding.remoteVideoView.setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FIT)
+                binding.remoteVideoView.setEnableHardwareScaler(true)
+                binding.remoteVideoView.setMirror(false)
+            } else {
+                Log.e(TAG, "EglBase is null, cannot init video view")
+                finish()
+                return
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to init video renderer", e)
+            finish()
+            return
+        }
 
         // Start as controller
-        webRTCManager!!.startAsController(roomId!!, binding.remoteVideoView)
+        webRTCManager?.startAsController(roomId!!, binding.remoteVideoView)
 
         setupTouchOverlay()
         setupToolbar()
@@ -74,18 +87,22 @@ class RemoteViewActivity : AppCompatActivity(), WebRTCManager.WebRTCListener {
     @SuppressLint("ClickableViewAccessibility")
     private fun setupTouchOverlay() {
         binding.touchOverlay.setOnTouchListener { view, event ->
+            if (!isActive) return@setOnTouchListener true
+
             val viewWidth = view.width.toFloat()
             val viewHeight = view.height.toFloat()
+            if (viewWidth == 0f || viewHeight == 0f) return@setOnTouchListener true
 
-            // Normalize coordinates to 0..1 range, then scale to remote screen
-            val normX = event.x / viewWidth
-            val normY = event.y / viewHeight
+            val normX = (event.x / viewWidth).coerceIn(0f, 1f)
+            val normY = (event.y / viewHeight).coerceIn(0f, 1f)
 
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     touchDownX = normX
                     touchDownY = normY
                     touchDownTime = System.currentTimeMillis()
+                    // Show toolbar briefly on touch
+                    showToolbar()
                     true
                 }
                 MotionEvent.ACTION_UP -> {
@@ -129,32 +146,35 @@ class RemoteViewActivity : AppCompatActivity(), WebRTCManager.WebRTCListener {
 
     private fun setupToolbar() {
         binding.btnBack.setOnClickListener {
-            sendInputEvent(JsonObject().apply {
-                addProperty("action", "back")
-            })
+            sendInputEvent(JsonObject().apply { addProperty("action", "back") })
         }
         binding.btnHome.setOnClickListener {
-            sendInputEvent(JsonObject().apply {
-                addProperty("action", "home")
-            })
+            sendInputEvent(JsonObject().apply { addProperty("action", "home") })
         }
         binding.btnKeyboard.setOnClickListener {
             showTextInputDialog()
         }
         binding.btnDisconnectSession.setOnClickListener {
-            roomId?.let { signalingClient?.disconnectRoom(it) }
-            finish()
+            disconnect()
         }
 
-        // Auto-hide toolbar
-        binding.toolbar.postDelayed({
-            binding.toolbar.animate().alpha(0.3f).duration = 500
-        }, 3000)
-        binding.touchOverlay.setOnClickListener {
-            binding.toolbar.animate().alpha(0.8f).duration = 200
-            binding.toolbar.postDelayed({
-                binding.toolbar.animate().alpha(0.3f).duration = 500
-            }, 3000)
+        // Auto-hide toolbar after 3 seconds
+        scheduleHideToolbar()
+    }
+
+    private fun showToolbar() {
+        binding.toolbar.animate().alpha(0.9f).setDuration(150).start()
+        scheduleHideToolbar()
+    }
+
+    private fun scheduleHideToolbar() {
+        binding.toolbar.removeCallbacks(hideToolbarRunnable)
+        binding.toolbar.postDelayed(hideToolbarRunnable, 3000)
+    }
+
+    private val hideToolbarRunnable = Runnable {
+        if (!isFinishing) {
+            binding.toolbar.animate().alpha(0.2f).setDuration(500).start()
         }
     }
 
@@ -181,7 +201,17 @@ class RemoteViewActivity : AppCompatActivity(), WebRTCManager.WebRTCListener {
     }
 
     private fun sendInputEvent(event: JsonObject) {
-        roomId?.let { signalingClient?.sendInputEvent(it, event) }
+        try {
+            roomId?.let { signalingClient?.sendInputEvent(it, event) }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to send input event", e)
+        }
+    }
+
+    private fun disconnect() {
+        isActive = false
+        roomId?.let { signalingClient?.disconnectRoom(it) }
+        finish()
     }
 
     // ========== WebRTCListener ==========
@@ -189,11 +219,19 @@ class RemoteViewActivity : AppCompatActivity(), WebRTCManager.WebRTCListener {
     override fun onPeerConnected() {
         runOnUiThread {
             binding.tvConnectionInfo.text = "已连接"
+            binding.tvConnectionInfo.visibility = View.VISIBLE
+            binding.tvConnectionInfo.postDelayed({
+                if (!isFinishing) {
+                    binding.tvConnectionInfo.animate().alpha(0f).setDuration(1000).start()
+                }
+            }, 3000)
         }
     }
 
     override fun onPeerDisconnected() {
         runOnUiThread {
+            binding.tvConnectionInfo.alpha = 1f
+            binding.tvConnectionInfo.visibility = View.VISIBLE
             binding.tvConnectionInfo.text = "连接断开"
         }
     }
@@ -205,14 +243,19 @@ class RemoteViewActivity : AppCompatActivity(), WebRTCManager.WebRTCListener {
     }
 
     override fun onDestroy() {
+        isActive = false
+        binding.toolbar.removeCallbacks(hideToolbarRunnable)
+        try {
+            binding.remoteVideoView.release()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error releasing video view", e)
+        }
         super.onDestroy()
-        binding.remoteVideoView.release()
     }
 }
 
 /**
  * Simple holder for sharing instances between activities.
- * In production, use Hilt/Koin DI or a shared ViewModel.
  */
 object RemoteControlHolder {
     var signalingClient: SignalingClient? = null

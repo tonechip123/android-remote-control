@@ -1,48 +1,63 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#F5F5F5">
+    android:background="#F7F8FA">
 
-    <!-- Title bar -->
+    <!-- Top header -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="56dp"
-        android:background="#1976D2"
-        android:gravity="center_vertical"
-        android:paddingHorizontal="16dp">
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="#FFFFFF"
+        android:paddingTop="48dp"
+        android:paddingBottom="16dp"
+        android:paddingHorizontal="20dp"
+        android:elevation="1dp">
 
-        <TextView
-            android:layout_width="0dp"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="MY远程"
-            android:textColor="#FFFFFF"
-            android:textSize="20sp"
-            android:textStyle="bold" />
+            android:gravity="center_vertical">
 
-        <TextView
-            android:id="@+id/tvStatus"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/status_disconnected"
-            android:textColor="#B3FFFFFF"
-            android:textSize="13sp" />
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="可控设备"
+                android:textColor="#1A1A1A"
+                android:textSize="26sp"
+                android:textStyle="bold" />
+
+            <!-- Status indicator -->
+            <TextView
+                android:id="@+id/tvStatus"
+                android:layout_width="wrap_content"
+                android:layout_height="32dp"
+                android:gravity="center"
+                android:paddingHorizontal="12dp"
+                android:text="@string/status_disconnected"
+                android:textColor="#999999"
+                android:textSize="13sp"
+                android:background="@drawable/bg_status_pill" />
+        </LinearLayout>
     </LinearLayout>
 
-    <!-- Setup guide card (shown only when setup needed) -->
+    <!-- Setup guide card -->
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/cardSetup"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_margin="12dp"
+        android:layout_marginHorizontal="16dp"
+        android:layout_marginTop="12dp"
         android:visibility="gone"
         app:cardCornerRadius="12dp"
-        app:cardElevation="2dp"
-        app:strokeColor="#FF6F00"
-        app:strokeWidth="1dp"
-        xmlns:app="http://schemas.android.com/apk/res-auto">
+        app:cardElevation="0dp"
+        app:cardBackgroundColor="#FFF8E1"
+        app:strokeColor="#FFE082"
+        app:strokeWidth="1dp">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -53,8 +68,8 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="首次使用需要设置"
-                android:textColor="#FF6F00"
+                android:text="⚙ 首次使用需要设置"
+                android:textColor="#F57F17"
                 android:textSize="15sp"
                 android:textStyle="bold" />
 
@@ -62,30 +77,48 @@
                 android:id="@+id/btnSetupAccessibility"
                 style="@style/Widget.MaterialComponents.Button.OutlinedButton"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
+                android:layout_height="44dp"
+                android:layout_marginTop="10dp"
                 android:text="1. 开启无障碍服务（被控端必须）"
-                android:textSize="13sp" />
+                android:textSize="13sp"
+                app:cornerRadius="8dp" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnSetupBattery"
                 style="@style/Widget.MaterialComponents.Button.OutlinedButton"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
+                android:layout_height="44dp"
+                android:layout_marginTop="4dp"
                 android:text="2. 关闭电池优化（保持后台运行）"
-                android:textSize="13sp" />
+                android:textSize="13sp"
+                app:cornerRadius="8dp" />
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
 
-    <!-- Device list header -->
-    <TextView
-        android:layout_width="wrap_content"
+    <!-- Online devices section header -->
+    <LinearLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginStart="16dp"
-        android:layout_marginTop="12dp"
-        android:text="在线设备"
-        android:textColor="#666"
-        android:textSize="13sp" />
+        android:gravity="center_vertical"
+        android:paddingHorizontal="20dp"
+        android:paddingTop="16dp"
+        android:paddingBottom="8dp">
+
+        <View
+            android:layout_width="3dp"
+            android:layout_height="16dp"
+            android:background="#1976D2" />
+
+        <TextView
+            android:id="@+id/tvDeviceCount"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="在线设备 0"
+            android:textColor="#666666"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+    </LinearLayout>
 
     <!-- Device list -->
     <androidx.recyclerview.widget.RecyclerView
@@ -93,20 +126,41 @@
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:layout_marginTop="4dp"
         android:clipToPadding="false"
-        android:padding="8dp" />
+        android:paddingHorizontal="12dp"
+        android:paddingBottom="16dp" />
 
     <!-- Empty state -->
-    <TextView
-        android:id="@+id/tvEmpty"
+    <LinearLayout
+        android:id="@+id/layoutEmpty"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
         android:gravity="center"
-        android:text="没有其他在线设备\n请在另一台手机上也安装此应用"
-        android:textColor="#999"
-        android:textSize="14sp"
-        android:visibility="gone" />
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="📱"
+            android:textSize="48sp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="没有在线设备"
+            android:textColor="#999999"
+            android:textSize="16sp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="请在另一台手机上也安装此应用"
+            android:textColor="#BBBBBB"
+            android:textSize="13sp" />
+    </LinearLayout>
 
 </LinearLayout>
