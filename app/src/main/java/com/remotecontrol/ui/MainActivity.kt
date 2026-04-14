@@ -48,6 +48,16 @@ class MainActivity : AppCompatActivity(), SignalingListener, WebRTCManager.WebRT
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Global crash handler — show error instead of silent crash
+        Thread.setDefaultUncaughtExceptionHandler { _, e ->
+            Log.e(TAG, "UNCAUGHT EXCEPTION", e)
+            try {
+                val errorFile = java.io.File(getExternalFilesDir(null), "crash.txt")
+                errorFile.writeText("${java.util.Date()}\n${e.stackTraceToString()}")
+            } catch (_: Exception) {}
+        }
+
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
