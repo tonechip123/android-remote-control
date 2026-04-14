@@ -73,11 +73,9 @@ class MainActivity : AppCompatActivity(), SignalingListener, WebRTCManager.WebRT
         updateStatus(getString(R.string.status_connecting), false)
         signalingClient.connect(SERVER_URL, "${Build.MANUFACTURER} ${Build.MODEL}")
 
-        // Request screen capture on launch so it's ready when being controlled
-        // The system dialog only appears once; after that, the token is reused
-        if (savedProjectionData == null) {
-            requestScreenCapture()
-        }
+        // Don't request screen capture on launch
+        // Only request when actually being controlled (onRoomJoined)
+        // This avoids crash on Android 16 (Honor 400 Pro)
     }
 
     override fun onResume() {
