@@ -44,6 +44,11 @@
             android:foregroundServiceType="mediaProjection"
             android:exported="false" />
 
+        <!-- Connection keep-alive service -->
+        <service
+            android:name=".service.ConnectionService"
+            android:exported="false" />
+
         <!-- Accessibility Service for input injection -->
         <service
             android:name=".service.InputInjectionService"

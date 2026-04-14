@@ -13,6 +13,7 @@ import android.util.Log
 import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.NotificationCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
@@ -21,6 +22,7 @@ import com.remotecontrol.databinding.ActivityMainBinding
 import com.remotecontrol.network.SignalingClient
 import com.remotecontrol.network.SignalingListener
 import com.remotecontrol.network.WebRTCManager
+import com.remotecontrol.service.ConnectionService
 import com.remotecontrol.service.InputInjectionService
 import com.remotecontrol.service.ScreenCaptureService
 import com.remotecontrol.util.CoordinateMapper
@@ -57,6 +59,14 @@ class MainActivity : AppCompatActivity(), SignalingListener, WebRTCManager.WebRT
 
         setupDeviceList()
         setupSetupGuide()
+
+        // Start keep-alive foreground service
+        val connIntent = Intent(this, ConnectionService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(connIntent)
+        } else {
+            startService(connIntent)
+        }
 
         // Auto-connect
         updateStatus(getString(R.string.status_connecting), false)
@@ -135,6 +145,7 @@ class MainActivity : AppCompatActivity(), SignalingListener, WebRTCManager.WebRT
 
     override fun onConnected() {
         updateStatus(getString(R.string.status_connected), true)
+        updateServiceNotification("待机中，等待连接...")
     }
 
     override fun onDisconnected() {
@@ -175,6 +186,7 @@ class MainActivity : AppCompatActivity(), SignalingListener, WebRTCManager.WebRT
     override fun onControlAccepted(roomId: String) {
         currentRoomId = roomId
         updateStatus(getString(R.string.status_controlling), true)
+        updateServiceNotification("远程控制中...")
         val intent = Intent(this, RemoteViewActivity::class.java).apply {
             putExtra(RemoteViewActivity.EXTRA_ROOM_ID, roomId)
             putExtra(RemoteViewActivity.EXTRA_IS_CONTROLLER, true)
@@ -185,6 +197,7 @@ class MainActivity : AppCompatActivity(), SignalingListener, WebRTCManager.WebRT
     override fun onRoomJoined(roomId: String) {
         currentRoomId = roomId
         updateStatus(getString(R.string.status_controlled), true)
+        updateServiceNotification("被控制中，屏幕共享中...")
 
         val projData = savedProjectionData
         if (projData != null) {
@@ -212,6 +225,23 @@ class MainActivity : AppCompatActivity(), SignalingListener, WebRTCManager.WebRT
         currentRoomId = null
         updateStatus(getString(R.string.status_connected), true)
         Toast.makeText(this, "远程会话已结束", Toast.LENGTH_SHORT).show()
+        updateServiceNotification("待机中，等待连接...")
+    }
+
+    private fun updateServiceNotification(text: String) {
+        try {
+            val notification = NotificationCompat.Builder(this, App.CHANNEL_ID)
+                .setContentTitle("LinkView")
+                .setContentText(text)
+                .setSmallIcon(android.R.drawable.ic_menu_view)
+                .setOngoing(true)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .build()
+            val manager = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
+            manager.notify(ConnectionService.NOTIFICATION_ID, notification)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to update notification", e)
+        }
     }
 
     override fun onOffer(roomId: String, data: JsonObject) {
@@ -302,12 +332,8 @@ class MainActivity : AppCompatActivity(), SignalingListener, WebRTCManager.WebRT
 
     override fun onDestroy() {
         isDestroyed_ = true
-        signalingClient.disconnect()
-        try {
-            webRTCManager.release()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error releasing WebRTC on destroy", e)
-        }
+        // Don't disconnect — ConnectionService keeps it alive in background
+        // Only disconnect if user explicitly stops the service
         super.onDestroy()
     }
 }
