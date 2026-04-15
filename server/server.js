@@ -9,14 +9,16 @@ const APK_PATH = path.join(__dirname, '..', 'dl', 'my.apk');
 
 // HTTP server: serves APK at /my.apk, upgrades WebSocket otherwise
 const httpServer = http.createServer((req, res) => {
-  if (req.url === '/my.apk' || req.url === '/') {
-    const file = req.url === '/' ? APK_PATH : APK_PATH;
+  const dlDir = path.join(__dirname, '..', 'dl');
+  if (req.url === '/my.apk' || req.url === '/rustdesk.apk') {
+    const filename = req.url.slice(1);
+    const file = path.join(dlDir, filename);
     if (fs.existsSync(file)) {
       const stat = fs.statSync(file);
       res.writeHead(200, {
         'Content-Type': 'application/vnd.android.package-archive',
         'Content-Length': stat.size,
-        'Content-Disposition': 'attachment; filename="MY-Remote.apk"',
+        'Content-Disposition': `attachment; filename="${filename}"`,
       });
       fs.createReadStream(file).pipe(res);
     } else {
