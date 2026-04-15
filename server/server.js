@@ -7,11 +7,58 @@ const { v4: uuidv4 } = require('uuid');
 const PORT = process.env.PORT || 8080;
 const APK_PATH = path.join(__dirname, '..', 'dl', 'my.apk');
 
-// HTTP server: serves APK at /my.apk, upgrades WebSocket otherwise
+// HTTP server: serves files from dl/ and dl/tools/
 const httpServer = http.createServer((req, res) => {
   const dlDir = path.join(__dirname, '..', 'dl');
-  if (req.url === '/my.apk' || req.url === '/rustdesk.apk') {
-    const filename = req.url.slice(1);
+  const toolsDir = path.join(dlDir, 'tools');
+  const url = decodeURIComponent(req.url);
+
+  // /tools/ — list all downloadable files
+  if (url === '/tools' || url === '/tools/') {
+    if (!fs.existsSync(toolsDir)) {
+      res.writeHead(404);
+      res.end('Tools directory not found');
+      return;
+    }
+    const files = fs.readdirSync(toolsDir);
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tools</title><style>body{font-family:sans-serif;max-width:600px;margin:40px auto;padding:0 16px}
+a{display:block;padding:14px 16px;margin:8px 0;background:#f5f5f5;border-radius:8px;text-decoration:none;color:#1976D2;font-size:16px}
+a:active{background:#e0e0e0}.size{color:#999;font-size:13px;float:right}</style></head><body>
+<h2>Tools Download</h2>${files.map(f => {
+  const stat = fs.statSync(path.join(toolsDir, f));
+  const sizeMB = (stat.size / 1048576).toFixed(1);
+  return `<a href="/tools/${f}">${f}<span class="size">${sizeMB} MB</span></a>`;
+}).join('')}</body></html>`;
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(html);
+    return;
+  }
+
+  // /tools/filename — download file
+  if (url.startsWith('/tools/')) {
+    const filename = path.basename(url.slice(7));
+    const file = path.join(toolsDir, filename);
+    if (fs.existsSync(file)) {
+      const stat = fs.statSync(file);
+      const ext = path.extname(filename).toLowerCase();
+      const contentType = ext === '.apk' ? 'application/vnd.android.package-archive' : 'application/octet-stream';
+      res.writeHead(200, {
+        'Content-Type': contentType,
+        'Content-Length': stat.size,
+        'Content-Disposition': `attachment; filename="${filename}"`,
+      });
+      fs.createReadStream(file).pipe(res);
+    } else {
+      res.writeHead(404);
+      res.end('File not found');
+    }
+    return;
+  }
+
+  // Legacy direct APK downloads
+  if (url === '/my.apk' || url === '/rustdesk.apk') {
+    const filename = url.slice(1);
     const file = path.join(dlDir, filename);
     if (fs.existsSync(file)) {
       const stat = fs.statSync(file);
@@ -25,10 +72,11 @@ const httpServer = http.createServer((req, res) => {
       res.writeHead(404);
       res.end('APK not found');
     }
-  } else {
-    res.writeHead(200);
-    res.end('Signaling server OK');
+    return;
   }
+
+  res.writeHead(200);
+  res.end('Signaling server OK');
 });
 
 const wss = new WebSocket.Server({ server: httpServer });
