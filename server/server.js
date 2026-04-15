@@ -10,7 +10,7 @@ const APK_PATH = path.join(__dirname, '..', 'dl', 'my.apk');
 // HTTP server: serves files from dl/ and dl/tools/
 const httpServer = http.createServer((req, res) => {
   const dlDir = path.join(__dirname, '..', 'dl');
-  const toolsDir = path.join(dlDir, 'tools');
+  const toolsDir = '/root/my/tools';
   const url = decodeURIComponent(req.url);
 
   // /tools/ — list all downloadable files
